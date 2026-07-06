@@ -1,0 +1,620 @@
+---------- IModel.cs ----------
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Data.SqlClient;
+
+namespace MustafaBayram.VarlikKatmani.Base
+{
+    public interface IModel
+    {
+        int Id { get; set; }
+
+        void read(SqlDataReader reader);
+
+        SqlParameter[] GetInsertParameters();
+        SqlParameter[] GetUpdateParameters();
+        SqlParameter[] GetDeleteParameters();
+
+
+    }
+}
+
+
+---------- Kitap.cs ----------
+
+using MustafaBayram.VarlikKatmani.Base;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VarlikKatmani
+{
+    public class Kitap : IModel
+    {
+        public int Id { get; set; }
+        public string Ad { get; set; }
+        public string Yazar { get; set; }
+        public decimal Fiyat {  get; set; }
+
+        private Tur _tur;
+        public Tur Tur { get { return _tur; } set { _tur = value; } }
+        public string TurAd { get { return _tur == null ? "" : _tur.Ad; } }
+
+        public void read(SqlDataReader reader)
+        {
+            this.Id = Convert.ToInt32(reader["kitap_id"]);
+            this.Ad = reader["kitap_ad"].ToString();
+            this.Yazar = reader["kitap_yazar"].ToString();
+            this.Fiyat = Convert.ToDecimal(reader["kitap_fiyat"]);
+            this.Tur = new Tur()
+            {
+                Id = Convert.ToInt32(reader["tur_id"]),
+                Ad = reader["tur_ad"].ToString()
+            };
+        }
+
+        public SqlParameter[] GetInsertParameters()
+        {
+            return new SqlParameter[]
+            {
+                new SqlParameter("@kitap_ad" , this.Ad),
+                new SqlParameter("@kitap_yazar" , this.Yazar),
+                new SqlParameter("@kitap_fiyat" , this.Fiyat),
+                new SqlParameter("@tur_id" , this.Tur.Id)
+            };
+        }
+
+        public SqlParameter[] GetUpdateParameters()
+        {
+            return new SqlParameter[]
+            {
+                new SqlParameter("@kitap_id" , this.Id),
+                new SqlParameter("@kitap_ad" , this.Ad),
+                new SqlParameter("@kitap_yazar" , this.Yazar),
+                new SqlParameter("@kitap_fiyat" , this.Fiyat),
+                new SqlParameter("@tur_id" , this.Tur.Id)
+            };
+        }
+
+        public SqlParameter[] GetDeleteParameters()
+        {
+            return new SqlParameter[]
+            {
+                new SqlParameter("@kitap_id" , this.Id)
+            };
+        }
+    }
+}
+
+---------- Repositories / Base / IRepository.cs ----------
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani.Repositories.BaseRepositories
+{
+    public interface IRepository<T>
+    {
+        List<T> ToList();
+        T Add (T item);
+        int Delete (T item);
+        int Update (T item);
+    }
+}
+
+
+---------- Repositories / Base /IKullaniciRepository.cs ----------
+
+using MustafaBayram.VarlikKatmani;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani.Repositories.BaseRepositories
+{
+    public interface IKullaniciRepository : IRepository<Kullanici>
+    {
+        bool login (string Eposta, string Parola);
+    }
+}
+
+
+---------- Repositories / Repository.cs ----------
+
+using MustafaBayram.VarlikKatmani.Base;
+using MustafaBayram.VeritabaniErisimKatmani.Repositories.BaseRepositories;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani.Repositories
+{
+    public abstract class Repository<T> : IRepository<T> where T : IModel
+    {
+        protected readonly AppDbContext context;
+        public abstract string ListProcName { get; }
+        public abstract string AddProcName { get; }
+        public abstract string DeleteProcName { get; }
+        public abstract string UpdateProcName { get; }
+
+        protected Repository(AppDbContext context)
+        {
+            this.context = context;
+        }
+
+        public List<T> ToList()
+        {
+            var command = context.CreateCommand(ListProcName);
+            return context.ToList<T>(command);
+        }
+
+        public T Add(T item)
+        {
+            var command = context.CreateCommand(AddProcName, item.GetInsertParameters());
+            item.Id = Convert.ToInt32(context.ExecuteScalar(command));
+            return item;
+        }
+
+        public int Delete(T item)
+        {
+            var command = context.CreateCommand(DeleteProcName,item.GetDeleteParameters());
+            return context.ExeucteNonQuery(command);
+        }
+
+        public int Update(T item)
+        {
+            var command = context.CreateCommand(UpdateProcName,item.GetUpdateParameters());
+            return context.ExeucteNonQuery(command);
+        }
+    }
+}
+
+
+---------- Repositories / KullaniciRepository.cs ----------
+
+using MustafaBayram.VarlikKatmani;
+using MustafaBayram.VeritabaniErisimKatmani.Repositories.BaseRepositories;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani.Repositories
+{
+    public class KullaniciRepository : Repository<Kullanici>, IKullaniciRepository
+    {
+        public KullaniciRepository(AppDbContext context) : base(context)
+        {
+        }
+
+        public override string ListProcName => "sp_kullanici_listele";
+
+        public override string AddProcName => "sp_kullanici_ekle";
+
+        public override string DeleteProcName => "sp_kullanici_sil";
+
+        public override string UpdateProcName => "sp_kullanici_guncelle";
+
+        public bool login(string Eposta, string Parola)
+        {
+            var command = context.CreateCommand("sp_kullanici_login");
+            command.Parameters.AddWithValue("@kullanici_eposta", Eposta);
+            command.Parameters.AddWithValue("@kullanici_parola", Parola);
+
+            bool result = Convert.ToBoolean(context.ExecuteScalar(command));
+
+            return result;
+        }
+    }
+}
+
+
+---------- AppDbContext.cs ----------
+
+using MustafaBayram.VarlikKatmani.Base;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani
+{
+    public class AppDbContext
+    {
+        private SqlConnection connection;
+
+        public AppDbContext()
+        {
+            connection = new SqlConnection(@"Data Source=(LocalDB)\MSSQLLocalDB;AttachDbFilename=|DataDirectory|\MustafaBayramDB.mdf;Integrated Security=True");
+        }
+
+
+        private void OpenConnection()
+        {
+            if (connection != null && connection.State != ConnectionState.Open)
+                connection.Open();
+        }
+
+        private void CloseConnection()
+        {
+            if (connection != null && connection.State == ConnectionState.Open)
+                connection.Close();
+        }
+
+        public SqlCommand CreateCommand(string procedureName)
+        {
+            SqlCommand cmd = new SqlCommand(procedureName, connection);
+            cmd.CommandType = CommandType.StoredProcedure;
+
+            return cmd;
+        }
+
+        public SqlCommand CreateCommand(string procedureName, SqlParameter[] parameters)
+        {
+            SqlCommand cmd = new SqlCommand(procedureName, connection);
+            cmd.Parameters.AddRange(parameters);
+            cmd.CommandType = CommandType.StoredProcedure;
+
+            return cmd;
+        }
+
+        public List<T> ToList<T>(SqlCommand cmd) where T : IModel
+        {
+            List<T> items = new List<T>();
+            OpenConnection();
+            var reader = cmd.ExecuteReader();
+            if (reader.HasRows)
+            {
+                while (reader.Read())
+                {
+                    T item = (T)Activator.CreateInstance(typeof(T));
+                    item.read(reader);
+                    items.Add(item);
+                }
+            }
+            reader.Close();
+            CloseConnection();
+
+            return items;
+        }
+
+        public object ExecuteScalar(SqlCommand cmd)
+        {
+            OpenConnection();
+            var scalarVal = cmd.ExecuteScalar();
+            CloseConnection();
+
+            return scalarVal;
+        }
+
+        public int ExeucteNonQuery(SqlCommand cmd)
+        {
+            OpenConnection();
+            int rowCount = cmd.ExecuteNonQuery();
+            CloseConnection();
+
+            return rowCount;
+        }
+
+
+    }
+}
+
+
+---------- UnitOfWork.cs ----------
+
+using MustafaBayram.VeritabaniErisimKatmani.Repositories;
+using MustafaBayram.VeritabaniErisimKatmani.Repositories.BaseRepositories;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MustafaBayram.VeritabaniErisimKatmani
+{
+    public class UnitOfWork
+    {
+        private readonly AppDbContext context;
+
+
+        private ITurRepository _turRepository;
+        public ITurRepository TurRepository
+        {
+            get
+            {
+                if (_turRepository == null)
+                    _turRepository = new TurRepository(context);
+                return _turRepository;
+            }
+        }
+
+
+        private IKitapRepository _kitapRepository;
+        public IKitapRepository KitapRepository
+        {
+            get
+            {
+                if (_kitapRepository == null)
+                    _kitapRepository = new KitapRepository(context);
+                return _kitapRepository;
+            }
+        }
+
+
+        private IKullaniciRepository _kullaniciRepository;
+        public IKullaniciRepository KullaniciRepository
+        {
+            get
+            {
+                if (_kullaniciRepository == null)
+                    _kullaniciRepository = new KullaniciRepository(context);
+                return _kullaniciRepository;
+            }
+        }
+
+
+        public UnitOfWork()
+        {
+            context = new AppDbContext();
+        }
+
+    }
+}
+
+
+---------- Views / KullaniciViews / LoginView.cs ----------
+
+using MustafaBayram.VeritabaniErisimKatmani;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace MustafaBayram.SunumKatmani.Views.KullaniciViews
+{
+    public partial class LoginView : Form
+    {
+        private readonly UnitOfWork uow = new UnitOfWork();
+
+        public LoginView()
+        {
+            InitializeComponent();
+        }
+
+        private void btnGiris_Click(object sender, EventArgs e)
+        {
+            if (uow.KullaniciRepository.login(txtEPosta.Text.Trim(), txtParola.Text.Trim()))
+            {
+                lblHata.Visible = false;
+                this.DialogResult = DialogResult.OK;
+            }
+            else
+            {
+                lblHata.Visible = true;
+            }
+        }
+
+    }
+}
+
+
+---------- Views / KitapViews / KitapView.cs ----------
+
+using MustafaBayram.VarlikKatmani;
+using MustafaBayram.VeritabaniErisimKatmani;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace MustafaBayram.SunumKatmani.Views.KitapViews
+{
+    public partial class KitapView : Form
+    {
+        private readonly UnitOfWork uow = new UnitOfWork();
+
+        public Kitap Kitap { get; set; }
+
+        public KitapView() : this(new Kitap()) { }
+
+        public KitapView(Kitap item)
+        {
+            InitializeComponent();
+            this.Kitap = item;
+
+            // tblTurler listesini çeker. ValueMember -> tur_id, DisplayMember -> tur_ad
+            cbxTur.DataSource = uow.TurRepository.ToList();
+            cbxTur.ValueMember = "Id"; // Varlık katmanındaki tur_id karşılığı (Id veya TurId olabilir)
+            cbxTur.DisplayMember = "Ad"; // Varlık katmanındaki tur_ad karşılığı (Ad veya TurAd olabilir)
+        }
+
+        private void KitapView_Load(object sender, EventArgs e)
+        {
+            // Veri tabanı tablonuzdaki kolonlara göre atamalar (tblKitaplar)
+            txtAd.Text = Kitap.Ad;                // kitap_ad
+            txtYazar.Text = Kitap.Yazar;          // kitap_yazar
+            txtFiyat.Text = Kitap.Fiyat.ToString(); // kitap_fiyat
+
+            cbxTur.SelectedValue = Kitap.Tur != null ? Kitap.Tur.Id : 0; // tur_id
+        }
+
+        private void btnTamam_Click(object sender, EventArgs e)
+        {
+            // Validation (Doğrulama işlemleri yapılabilir)
+            if (string.IsNullOrEmpty(txtAd.Text.Trim()) || string.IsNullOrEmpty(txtYazar.Text.Trim()))
+            {
+                MessageBox.Show("Lütfen boş alanları doldurunuz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Formdaki verileri Kitap nesnesine aktarıyoruz (sp_kitap_ekle / sp_kitap_guncelle parametreleri için)
+            Kitap.Ad = txtAd.Text.Trim();
+            Kitap.Yazar = txtYazar.Text.Trim();
+            Kitap.Fiyat = Convert.ToDecimal(txtFiyat.Text);
+            Kitap.Tur = cbxTur.SelectedItem as Tur;
+
+            this.DialogResult = DialogResult.OK;
+        }
+    }
+}
+
+---------- Views / KitapViews / KitapListView.cs ----------
+
+using MustafaBayram.VarlikKatmani;
+using MustafaBayram.VeritabaniErisimKatmani;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace MustafaBayram.SunumKatmani.Views.KitapViews
+{
+    public partial class KitapListView : Form
+    {
+        private readonly UnitOfWork uow;
+        private BindingSource KitaplarSource;
+        private List<Kitap> Kitaplar;
+
+        public KitapListView()
+        {
+            InitializeComponent();
+
+            uow = new UnitOfWork();
+            KitaplarSource = new BindingSource();
+        }
+
+        private void KitapListView_Load(object sender, EventArgs e)
+        {
+            // Kitapları veri tabanından (sp_kitap_listele) çekiyoruz
+            Kitaplar = uow.KitapRepository.ToList();
+            KitaplarSource.DataSource = Kitaplar;
+
+            dataGridView1.AutoGenerateColumns = false;
+
+            // Kolonları veri tabanı şemana (tblKitaplar) göre oluşturuyoruz
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn() { Name = "Id", HeaderText = "Id", DataPropertyName = "Id" });
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn() { HeaderText = "Kitap Adı", DataPropertyName = "Ad" }); // kitap_ad
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn() { HeaderText = "Yazarı", DataPropertyName = "Yazar" });   // kitap_yazar
+
+            // Fiyat Kolonu (kitap_fiyat - MONEY tipi için sağa hizalı ve para birimi formatında)
+            var fiyatColumn = new DataGridViewTextBoxColumn() { HeaderText = "Fiyatı", DataPropertyName = "Fiyat" };
+            fiyatColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            fiyatColumn.DefaultCellStyle.Format = "C2"; // TL / Para birimi simgesi ekler
+            dataGridView1.Columns.Add(fiyatColumn);
+
+            // Kitap Türü Kolonu (tur_ad)
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn() { HeaderText = "Türü", DataPropertyName = "TurAd" });
+
+            dataGridView1.DataSource = KitaplarSource;
+        }
+
+        private void btnEkle_Click(object sender, EventArgs e)
+        {
+            KitapView vwKitap = new KitapView();
+            if (vwKitap.ShowDialog() == DialogResult.OK)
+            {
+                // Kitap ekleme işlemi (sp_kitap_ekle)
+                var item = uow.KitapRepository.Add(vwKitap.Kitap);
+                Kitaplar.Add(item);
+                KitaplarSource.ResetBindings(false);
+            }
+        }
+
+        private void btnGuncelle_Click(object sender, EventArgs e)
+        {
+            if (dataGridView1.SelectedRows.Count > 0)
+            {
+                int id = (int)dataGridView1.SelectedRows[0].Cells["Id"].Value;
+                var item = Kitaplar.FirstOrDefault(x => x.Id == id);
+
+                KitapView vwKitap = new KitapView(item);
+                if (vwKitap.ShowDialog() == DialogResult.OK)
+                {
+                    // Kitap güncelleme işlemi (sp_kitap_guncelle)
+                    uow.KitapRepository.Update(vwKitap.Kitap);
+                    KitaplarSource.ResetBindings(false);
+                }
+            }
+        }
+
+        private void btnSil_Click(object sender, EventArgs e)
+        {
+            if (dataGridView1.SelectedRows.Count > 0)
+            {
+                int id = (int)dataGridView1.SelectedRows[0].Cells["Id"].Value;
+                var item = Kitaplar.FirstOrDefault(x => x.Id == id);
+
+                if (item != null && DialogResult.Yes == MessageBox.Show("Kitap Sil", $"'{item.Ad}' isimli kitabı silmek istiyor musunuz?", MessageBoxButtons.YesNo, MessageBoxIcon.Question))
+                {
+                    // Kitap silme işlemi (sp_kitap_sil)
+                    uow.KitapRepository.Delete(item);
+                    KitaplarSource.Remove(item);
+                }
+            }
+        }
+    }
+}
+
+---------- Program.cs ----------
+
+using MustafaBayram.SunumKatmani.Views.KullaniciViews;
+using MustafaBayram.Views;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace MustafaBayram
+{
+    static class Program
+    {
+        /// <summary>
+        /// The main entry point for the application.
+        /// </summary>
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            LoginView vwLogin = new LoginView();
+            if (vwLogin.ShowDialog() == DialogResult.OK)
+            {
+                Application.Run(new MainView());
+            }
+
+        }
+    }
+}
+
+
